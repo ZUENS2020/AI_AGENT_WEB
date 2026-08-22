@@ -95,7 +95,7 @@ build 阶段通过 `_inject_coverage_instrumentation()` 自动向 `build.py` 注
 
 ### 测试 / lint / build
 - 后端测试：仓库根目录 `.venv/bin/python -m pytest tests/`（需 Postgres 在 55432）。命令见 `.github/workflows/test.yml`。
-- 前端：`cd frontend-next && npx next lint` / `npm run build`。CI 里 `npx vitest run` 目前无测试文件（正常）。
+- 前端：`cd frontend-next && npx next lint` / `npm run build`。CI 里 `npx vitest run --passWithNoTests`（目前无测试文件，属正常）。
 
 ### 已知非环境导致 / 环境导致的测试失败（勿误判为回归）
 - `tests/test_codex_helper_sentinel.py` 的约 15 个用例在本 VM 失败：`done` sentinel 判新旧用 `mtime < attempt_start - 1e-3`，而本机 `/tmp`（overlayfs）文件 mtime 比 wall-clock 落后约 3ms，超过 1ms 容差被误判为 stale。这是本环境 mtime/时钟粒度问题（CI 的 ext4 不触发），非代码回归；请勿为此改代码。

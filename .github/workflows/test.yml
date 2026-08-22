@@ -69,7 +69,7 @@ jobs:
 
       - name: Run tests
         working-directory: frontend-next
-        run: npx vitest run
+        run: npx vitest run --passWithNoTests
 
   lint:
     name: Lint
