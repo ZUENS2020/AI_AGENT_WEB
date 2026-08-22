@@ -4,12 +4,22 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WF = ROOT / "harness_generator" / "src" / "langchain_agent" / "workflow_graph.py"
+AGENT = ROOT / "harness_generator" / "src" / "langchain_agent"
+WF = AGENT / "workflow_graph.py"
 LEGACY = ROOT / "harness_generator" / "src" / "fuzz_unharnessed_repo.py"
 
 
+def _workflow_source() -> str:
+    files = [
+        WF,
+        AGENT / "workflow_helpers.py",
+        *sorted((AGENT / "nodes").glob("*.py")),
+    ]
+    return "\n".join(path.read_text(encoding="utf-8") for path in files)
+
+
 def test_workflow_graph_binds_stage_skills_for_all_opencode_calls() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     expected = [
         'stage_skill="analysis"',
         'stage_skill="plan_fix_targets_schema"',
@@ -70,7 +80,7 @@ def test_legacy_passes_also_bind_stage_skills_for_plan_and_synthesize() -> None:
 
 
 def test_workflow_attempts_forced_harness_repair_before_missing_harness_error() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     repair_hint = "synthesize: harness missing after grace wait; running forced harness repair"
     error_hint = "synthesize incomplete: missing harness source under fuzz/"
     repair_pos = text.find(repair_hint)
@@ -81,7 +91,7 @@ def test_workflow_attempts_forced_harness_repair_before_missing_harness_error() 
 
 
 def test_workflow_plan_and_synthesize_use_group_feedback_context() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert '_collect_feedback_for_group(gen.repo_root, "planning_synth", limit=3)' in text
     assert "_write_stage_feedback(" in text
     assert 'stage="plan"' in text
@@ -89,7 +99,7 @@ def test_workflow_plan_and_synthesize_use_group_feedback_context() -> None:
 
 
 def test_workflow_build_and_crash_failures_route_to_plan_repair_loop() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert 'graph.add_node("fix_build", _node_fix_build)' not in text
     assert 'graph.add_node("fix_crash", _node_fix_crash)' not in text
     assert '{"run": "run", "plan": "plan", "stop": END}' in text
@@ -98,19 +108,19 @@ def test_workflow_build_and_crash_failures_route_to_plan_repair_loop() -> None:
 
 
 def test_workflow_fix_harness_node_is_legacy_only() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert 'graph.add_node("fix-harness", _node_fix_harness_after_run)' not in text
     assert '{"fix-harness": "fix-harness"' not in text
 
 
 def test_workflow_synthesize_uses_configurable_opencode_attempts() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert "def _synthesize_opencode_attempts() -> int:" in text
     assert "max_attempts=_synthesize_opencode_attempts()" in text
 
 
 def test_workflow_marks_coverage_replan_as_coverage_repair_origin() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert '"repair_origin_stage": "coverage" if replan_required' in text
     assert '"repair_error_kind": "coverage_plateau" if replan_required' in text
     assert '"repair_error_code": "coverage_replan_required" if replan_required' in text

@@ -12,6 +12,7 @@ for p in (APP_DIR, SRC_DIR):
         sys.path.insert(0, str(p))
 
 import workflow_graph
+import workflow_helpers
 
 
 def test_analysis_context_writes_vuln_candidate_worklist(tmp_path: Path) -> None:
@@ -291,6 +292,7 @@ def test_vuln_hunt_invokes_opencode_skill_when_key_is_available(tmp_path: Path, 
         repo_root = tmp_path
         patcher = _Patcher()
 
+    monkeypatch.setattr(workflow_helpers, "_has_codex_key", lambda: True)
     monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
 
     out = workflow_graph._node_vuln_hunt(
@@ -359,6 +361,7 @@ def test_vuln_hunt_retries_when_attack_hint_incomplete(tmp_path: Path, monkeypat
         repo_root = tmp_path
         patcher = _Patcher()
 
+    monkeypatch.setattr(workflow_helpers, "_has_codex_key", lambda: True)
     monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
     out = workflow_graph._node_vuln_hunt(
         {"generator": Gen(), "analysis_context_path": str(analysis_context)}
