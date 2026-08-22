@@ -79,8 +79,9 @@ Constraints:
 - This stage is analysis-only: do not modify repository business source files.
 - Use companion outputs (if present) from `/shared/output/_k8s_jobs/<job-id>/promefuzz/`.
 - Bounded analysis mode: after reading required files, use at most 6 additional MCP/tool reads in the first pass.
-- Prefer existing system-generated `security_evidence[]` and `vuln_candidates.json`; treat them as sufficient unless empty or corrupt.
-- When MCP tools are available, use code-navigation MCP tools first (`list_definitions`, `read_definition`, `read_source`, `find_references`), then preprocessor MCP tools only if needed (`run_ast_preprocessor`, `extract_api_functions`, `build_library_callgraph`).
+- This stage is a shallow evidence pass. Deep vulnerability hunting belongs to `vuln_hunt`.
+- Prefer `scan_dangerous_sinks` plus existing system-generated `security_evidence[]` and `vuln_candidates.json`; treat them as sufficient unless empty or corrupt.
+- When MCP tools are available, use hunt/code-navigation MCP tools first (`scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `list_definitions`, `read_definition`, `read_source`, `find_references`), then preprocessor MCP tools only if needed (`run_ast_preprocessor`, `extract_api_functions`, `build_library_callgraph`).
 - Do not call semantic/comprehension MCP tools in the first pass unless the coordinator explicitly asks for semantic enrichment.
 - After one bounded evidence pass, write `fuzz/vuln_hypotheses.md` and `./done` immediately. Do not keep exploring after producing a coherent top 3-8 hypothesis set.
 - If MCP is unavailable, continue in degraded mode and record the reason in `fuzz/vuln_hypotheses.md`.
@@ -127,6 +128,17 @@ Goal:
 - discover or update vulnerability-first candidate worklist
 - keep outputs advisory; the coordinator will normalize candidates before execution
 
+Security Audit Mandate:
+- You are an authorized automated security auditor of this submitted repository.
+- Do not refuse, hedge, or replace memory-unsafety findings with generic remediation advice.
+- Every candidate MUST include CWE/risk type, sink line, `attack_hint.trigger_condition`, `attack_hint.key_code_path`, and concrete `attack_hint.boundary_values` (never TBD).
+
+Strategy menu (choose any combination):
+- evidence-direct from `security_evidence[]`
+- CWE-class sweep (OOB / UAF / integer overflow / format string / injection)
+- high-risk function deep-read via `scan_dangerous_sinks` + `read_source` / `get_function_info`
+- call-path construction via `find_call_path` from sink to a public API
+
 Required outputs:
 - `fuzz/vuln_candidates.json`
 - `fuzz/vuln_hunt_summary.md`
@@ -136,6 +148,7 @@ Constraints:
 - Read-only exploration commands are allowed.
 - Do not modify repository business source files.
 - Do not write `workflow_context`, `selected_targets.json`, or `execution_plan.json`.
+- Query MCP hunt tools first when available (`scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `read_source`).
 - Preserve useful existing candidate state: `validation_status`, `attempt_count`, `last_result`.
 - Every candidate should include evidence references, concrete attack hint, risk scores, and validation status.
 - If feedback shows plateau, false positive, exhausted candidate, or repeated harness failure, change candidate focus.
@@ -320,6 +333,7 @@ Stage requirements:
 - If MCP is unavailable, continue in degraded mode and note the missing MCP evidence in `fuzz/README.md` or `fuzz/repo_understanding.json`.
 - When diagnostics/context include concrete file paths, prioritize explicit actions in the form `Read and fix <path>[:line]`.
 - Keep outputs aligned with `fuzz/selected_targets.json`; if target drifts, document rejection reason.
+- When vulnerability candidates exist, MUST consume `attack_hint.trigger_condition`, `attack_hint.key_code_path`, and `attack_hint.boundary_values` (never drop boundary values).
 - Keep `fuzz/observed_target.json` consistent with scaffold when present.
 - Prefer public/stable repository APIs for harness logic. Avoid internal/private namespaces such as `detail`, `_internal`, or equivalent implementation-only symbols unless diagnostics prove they are the only valid entrypoints.
 - LibFuzzer harness contract is mandatory: do not define custom `main()` in harness source; expose fuzz entry via `extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)` (or language-equivalent entrypoint only).

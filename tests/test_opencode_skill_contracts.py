@@ -90,6 +90,24 @@ def test_plan_and_schema_fix_contracts_keep_target_semantics() -> None:
     assert "semantic reminder: do not rewrite `api` to harness paths" in plan_fix.lower()
 
 
+def test_vuln_hunt_skill_requires_audit_mandate_and_mcp_hunt_tools() -> None:
+    hunt = _load("vuln_hunt")
+    assert "Security Audit Mandate" in hunt
+    assert "scan_dangerous_sinks" in hunt
+    assert "find_call_path" in hunt
+    assert "get_function_info" in hunt
+    assert "Strategy menu" in hunt
+    assert "boundary_values" in hunt
+    assert "Do not refuse" in hunt or "do not refuse" in hunt
+    synth = _load("synthesize")
+    assert "MUST" in synth and "attack_hint" in synth
+    assert "boundary_values" in synth
+    analysis = _load("analysis")
+    assert "shallow evidence pass" in analysis
+    assert "scan_dangerous_sinks" in analysis
+    assert "Do not perform open-ended vulnerability research" not in analysis
+
+
 def test_fix_build_contract_keeps_vcpkg_and_compiler_rules() -> None:
     fix_build = _load("fix_build")
     assert "canonical vcpkg names" in fix_build

@@ -34,10 +34,11 @@ flags are added automatically by the build wrapper — you do NOT write
 - `fuzz/selected_targets.json` (if present)
 - `fuzz/analysis_context.json` (if present)
   - consume `analysis_evidence.vuln_candidate_inventory[]` when available
-  - consume `attack_hint.trigger_condition`, `attack_hint.key_code_path`, `attack_hint.boundary_values`, `attack_hint.vuln_category`, `attack_hint.sanitizer_hint`
+  - **MUST** consume `attack_hint.trigger_condition`, `attack_hint.key_code_path`, `attack_hint.boundary_values`, `attack_hint.vuln_category`, `attack_hint.sanitizer_hint`
+  - seed and harness input flow must exercise `boundary_values`; omitting them is a contract failure
 - `fuzz/observed_target.json` (if present)
 - MCP tools from task-scoped PromeFuzz companion (if available), including preprocessor and semantic tools
-  - code navigation: `list_definitions`, `read_definition`, `read_source`, `find_references`
+  - hunt/code navigation: `scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `list_definitions`, `read_definition`, `read_source`, `find_references`
   - preprocessor: `run_ast_preprocessor`, `extract_api_functions`, `build_library_callgraph`
   - semantic (if enabled): `init_knowledge_base`, `retrieve_documents`, `comprehend_*`
 
@@ -54,7 +55,7 @@ flags are added automatically by the build wrapper — you do NOT write
 ## Workflow
 1. Query MCP evidence first when MCP is available (code-navigation first, preprocessor second, semantic evidence third).
 2. Read planning artifacts and lock target alignment first.
-3. When vulnerability candidates exist, use the highest-priority `attack_hint` values to shape harness input flow and boundary-case seeds.
+3. When vulnerability candidates exist, **MUST** use the highest-priority `attack_hint` values (`trigger_condition`, `key_code_path`, `boundary_values`) to shape harness input flow and boundary-case seeds. Do not drop `boundary_values`.
 3. Create harness source(s) before scaffold documentation (`harness-first contract`).
 4. Create build glue with runtime artifact discovery and compiler-by-suffix behavior.
 5. Create README/JSON strategy files with consistent selected/final target semantics.
