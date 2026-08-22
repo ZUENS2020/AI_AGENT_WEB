@@ -3,21 +3,51 @@ name: Auto Merge Dev PR
 on:
   pull_request_target:
     branches: ["dev"]
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review, closed]
 
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   enable-auto-merge:
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    if: >
+      github.event.action != 'closed'
+      && github.event.pull_request.draft == false
+      && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Enable auto-merge for dev PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          gh pr merge "${PR_NUMBER}" --auto --squash --repo "${GITHUB_REPOSITORY}"
+          # Preserve origin/main as a git ancestor when syncing main into
+          # dev. Squash would drop that topology and AGENTS.md conflicts
+          # again on the next dev → main promotion.
+          if [[ "${PR_TITLE}" == "Merge main into"* ]] \
+            || [[ "${PR_TITLE}" == "Merge origin/main"* ]]; then
+            gh pr merge "${PR_NUMBER}" --auto --merge --repo "${GITHUB_REPOSITORY}"
+          else
+            gh pr merge "${PR_NUMBER}" --auto --squash --repo "${GITHUB_REPOSITORY}"
+          fi
+
+  dispatch-deploy-dev:
+    if: >
+      github.event.action == 'closed'
+      && github.event.pull_request.merged == true
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Deploy Dev after GITHUB_TOKEN merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Pushes from GITHUB_TOKEN do not trigger on.push workflows.
+          # Promotion to main requires a successful active "dev"
+          # environment deployment, so kick Deploy Dev explicitly.
+          gh workflow run deploy-dev.yml --ref dev --repo "${GITHUB_REPOSITORY}"
