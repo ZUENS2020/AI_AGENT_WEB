@@ -98,5 +98,4 @@ build 阶段通过 `_inject_coverage_instrumentation()` 自动向 `build.py` 注
 - 前端：`cd frontend-next && npx next lint` / `npm run build`。CI 里 `npx vitest run` 目前无测试文件（正常）。
 
 ### 已知非环境导致 / 环境导致的测试失败（勿误判为回归）
-- `tests/test_opencode_skill_contracts.py::test_fix_build_contract_keeps_vcpkg_and_compiler_rules` 与 `tests/test_run_cmd_streaming.py::test_run_cmd_fails_when_declared_ports_require_missing_vcpkg`：在 `main`/`dev` 的 CI 上同样失败，属既有仓库问题。
 - `tests/test_codex_helper_sentinel.py` 的约 15 个用例在本 VM 失败：`done` sentinel 判新旧用 `mtime < attempt_start - 1e-3`，而本机 `/tmp`（overlayfs）文件 mtime 比 wall-clock 落后约 3ms，超过 1ms 容差被误判为 stale。这是本环境 mtime/时钟粒度问题（CI 的 ext4 不触发），非代码回归；请勿为此改代码。
