@@ -8,6 +8,7 @@ from .callgraph import CallGraphBuilder
 from .relevance import TypeRelevance, ClassRelevance, CallRelevance
 from .complexity import ComplexityCalculator
 from .incidental import IncidentalExtractor
+from .sinks import find_call_paths, lookup_function_info, scan_dangerous_sinks
 
 __all__ = [
     "ASTPreprocessor",
@@ -21,4 +22,7 @@ __all__ = [
     "CallRelevance",
     "ComplexityCalculator",
     "IncidentalExtractor",
+    "scan_dangerous_sinks",
+    "find_call_paths",
+    "lookup_function_info",
 ]

@@ -17,6 +17,19 @@ for p in (APP_DIR, SRC_DIR):
         sys.path.insert(0, str(p))
 
 import workflow_graph
+import workflow_helpers
+from nodes import analysis as analysis_node
+from nodes import plan as plan_node
+from nodes import synthesize as synthesize_node
+
+
+_WF_PATCH_MODULES = (workflow_graph, workflow_helpers, analysis_node, plan_node, synthesize_node)
+
+
+def _patch_wf(monkeypatch, name: str, value) -> None:
+    for mod in _WF_PATCH_MODULES:
+        if hasattr(mod, name):
+            monkeypatch.setattr(mod, name, value)
 
 
 def test_collect_target_analysis_parser_timeout_does_not_wait_for_executor_shutdown(
@@ -153,8 +166,8 @@ def test_node_plan_writes_antlr_context_and_hint(tmp_path: Path, monkeypatch):
         )
 
     gen = SimpleNamespace(repo_root=tmp_path, _pass_plan_targets=_pass_plan_targets, patcher=_Patcher())
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
 
     out = workflow_graph._node_plan({"generator": gen, "codex_hint": ""})
@@ -246,18 +259,18 @@ def test_node_analysis_writes_analysis_evidence_index(tmp_path: Path, monkeypatc
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(
-        workflow_graph,
+    _patch_wf(
+        monkeypatch,
         "_prepare_antlr_assist_context",
         lambda _repo_root: (str(antlr_ctx), "antlr ok"),
     )
-    monkeypatch.setattr(
-        workflow_graph,
+    _patch_wf(
+        monkeypatch,
         "_prepare_target_analysis_context",
         lambda _repo_root: (str(target_ctx), "target ok"),
     )
-    monkeypatch.setattr(
-        workflow_graph,
+    _patch_wf(
+        monkeypatch,
         "_collect_analysis_companion_context",
         lambda: (
             {
@@ -274,7 +287,7 @@ def test_node_analysis_writes_analysis_evidence_index(tmp_path: Path, monkeypatc
             "companion ready",
         ),
     )
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: False)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: False)
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=SimpleNamespace())
     out = workflow_graph._node_analysis({"generator": gen, "codex_hint": ""})
@@ -401,7 +414,7 @@ def test_node_synthesize_injects_antlr_context_into_additional_context(tmp_path:
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
 
     out = workflow_graph._node_synthesize(
@@ -460,7 +473,7 @@ def test_node_synthesize_surfaces_attack_hint_gap_as_repair_directive(tmp_path: 
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
 
     out = workflow_graph._node_synthesize(
@@ -515,7 +528,7 @@ def test_node_synthesize_marks_degraded_when_security_evidence_schema_is_invalid
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
     out = workflow_graph._node_synthesize(
         {
@@ -576,7 +589,7 @@ def test_node_synthesize_accepts_soft_target_drift_and_records_it(tmp_path: Path
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
     out = workflow_graph._node_synthesize(
         {
@@ -665,7 +678,7 @@ def test_node_synthesize_repairs_readme_for_target_drift(tmp_path: Path, monkeyp
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
     out = workflow_graph._node_synthesize(
         {
@@ -715,7 +728,7 @@ def test_node_synthesize_completes_partial_scaffold_after_idle_like_partial_outp
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
 
     out = workflow_graph._node_synthesize(
@@ -768,7 +781,7 @@ def test_node_synthesize_waits_required_grace_for_late_scaffold_files(tmp_path: 
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=_pass_synthesize_harness)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
     monkeypatch.setenv("SHERPA_SYNTHESIZE_GRACE_SEC", "0")
     monkeypatch.setenv("SHERPA_SYNTHESIZE_REQUIRED_GRACE_SEC", "2")
 
@@ -804,8 +817,8 @@ def test_node_plan_clears_stale_done_before_schema_retry(tmp_path: Path, monkeyp
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "1")
 
     out = workflow_graph._node_plan({"generator": gen, "codex_hint": ""})
@@ -841,8 +854,8 @@ def test_node_plan_uses_deterministic_fallback_after_retry_failure(tmp_path: Pat
 
     patcher = _Patcher()
     gen = SimpleNamespace(repo_root=tmp_path, patcher=patcher, _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "1")
 
     out = workflow_graph._node_plan({"generator": gen, "codex_hint": ""})
@@ -897,8 +910,8 @@ def test_node_plan_marks_replan_ineffective_when_outputs_do_not_materially_chang
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "1")
 
     out = workflow_graph._node_plan(
@@ -982,8 +995,8 @@ def test_node_plan_replan_excludes_attempted_target_from_selected_targets_and_ex
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
 
     out = workflow_graph._node_plan(
@@ -1027,8 +1040,8 @@ def test_node_plan_surfaces_attack_hint_gap_as_planning_directive(tmp_path: Path
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
 
     out = workflow_graph._node_plan(
@@ -1076,8 +1089,8 @@ def test_node_plan_resets_seed_families_when_new_target_has_none(tmp_path: Path,
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
 
     out = workflow_graph._node_plan(
@@ -1194,10 +1207,10 @@ def test_node_plan_hydrates_analysis_context_from_companion_artifacts(tmp_path: 
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
-    monkeypatch.setattr(workflow_graph, "_prepare_antlr_assist_context", lambda _repo_root: (str(antlr_ctx), "antlr ok"))
-    monkeypatch.setattr(workflow_graph, "_prepare_target_analysis_context", lambda _repo_root: (str(target_ctx), "target ok"))
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_prepare_antlr_assist_context", lambda _repo_root: (str(antlr_ctx), "antlr ok"))
+    _patch_wf(monkeypatch, "_prepare_target_analysis_context", lambda _repo_root: (str(target_ctx), "target ok"))
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
     monkeypatch.setenv("SHERPA_JOB_ID", "job-plan-companion")
     monkeypatch.setenv("SHERPA_OUTPUT_DIR", str(tmp_path))
@@ -1229,8 +1242,8 @@ def test_node_plan_fix_harness_injects_repo_root_crash_evidence(tmp_path: Path, 
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_plan_targets=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_make_plan_hint", lambda _repo_root: "base plan hint")
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_make_plan_hint", lambda _repo_root: "base plan hint")
     monkeypatch.setenv("SHERPA_PLAN_STRICT_TARGETS_SCHEMA", "0")
 
     out = workflow_graph._node_plan(
@@ -1286,18 +1299,18 @@ def test_node_synthesize_fix_harness_injects_repo_root_crash_evidence(tmp_path: 
             return None
 
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_Patcher(), _pass_synthesize_harness=lambda timeout: None)
-    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
-    monkeypatch.setattr(workflow_graph, "_validate_execution_plan_harness_consistency", lambda *args, **kwargs: (True, "", {}))
-    monkeypatch.setattr(workflow_graph, "_write_harness_index_doc", lambda *args, **kwargs: (str(fuzz_dir / "harness_index.json"), {"entries": []}))
-    monkeypatch.setattr(workflow_graph, "_validate_build_repair_contract", lambda *args, **kwargs: (True, ""))
-    monkeypatch.setattr(workflow_graph, "_validate_harness_source_contract", lambda *args, **kwargs: (True, ""))
-    monkeypatch.setattr(workflow_graph, "_analyze_harness_target_alignment", lambda _repo_root: {"drifted": False})
-    monkeypatch.setattr(workflow_graph, "_readme_drift_status", lambda *args, **kwargs: {"complete": True, "missing": [], "relation": "", "reason": ""})
-    monkeypatch.setattr(workflow_graph, "_remaining_time_budget_sec", lambda *args, **kwargs: 60)
-    monkeypatch.setattr(workflow_graph, "_synthesize_opencode_attempts", lambda: 1)
-    monkeypatch.setattr(workflow_graph, "_opencode_cli_retries", lambda: 0)
-    monkeypatch.setattr(workflow_graph, "_synthesize_opencode_idle_timeout_sec", lambda: 30)
-    monkeypatch.setattr(workflow_graph, "_synthesize_activity_watch_paths", lambda: [])
+    _patch_wf(monkeypatch, "_has_codex_key", lambda: True)
+    _patch_wf(monkeypatch, "_validate_execution_plan_harness_consistency", lambda *args, **kwargs: (True, "", {}))
+    _patch_wf(monkeypatch, "_write_harness_index_doc", lambda *args, **kwargs: (str(fuzz_dir / "harness_index.json"), {"entries": []}))
+    _patch_wf(monkeypatch, "_validate_build_repair_contract", lambda *args, **kwargs: (True, ""))
+    _patch_wf(monkeypatch, "_validate_harness_source_contract", lambda *args, **kwargs: (True, ""))
+    _patch_wf(monkeypatch, "_analyze_harness_target_alignment", lambda _repo_root: {"drifted": False})
+    _patch_wf(monkeypatch, "_readme_drift_status", lambda *args, **kwargs: {"complete": True, "missing": [], "relation": "", "reason": ""})
+    _patch_wf(monkeypatch, "_remaining_time_budget_sec", lambda *args, **kwargs: 60)
+    _patch_wf(monkeypatch, "_synthesize_opencode_attempts", lambda: 1)
+    _patch_wf(monkeypatch, "_opencode_cli_retries", lambda: 0)
+    _patch_wf(monkeypatch, "_synthesize_opencode_idle_timeout_sec", lambda: 30)
+    _patch_wf(monkeypatch, "_synthesize_activity_watch_paths", lambda: [])
 
     out = workflow_graph._node_synthesize(
         {

@@ -494,35 +494,100 @@ def register_tools(mcp):
         if output_path is None:
             output_path = "./output/relevance/type_relevance.json"
 
-        raise NotImplementedError("calculate_type_relevance() not yet implemented")
+        return {
+            "status": "success",
+            "tool": "calculate_type_relevance",
+            "enabled": True,
+            "results": [],
+            "edges": [],
+            "degraded": True,
+            "degraded_reason": "type_relevance_not_implemented",
+            "output_path": output_path,
+            "meta_path": str(meta_path or ""),
+        }
 
     @mcp.tool()
     async def get_function_info(
         function_location: str,
-        info_repo_path: str,
+        info_repo_path: str = "",
+        meta_path: Optional[str] = None,
+        context_lines: int = 40,
     ) -> dict[str, Any]:
         """
-        Get detailed information about a function.
+        Get detailed information about a function from preprocessor meta.json.
 
         Args:
-            function_location: Function location identifier
-            info_repo_path: Path to info repository
-
-        Returns:
-            Function information
+            function_location: Function location (`file:line:col`) or function name
+            info_repo_path: Path to meta.json or a directory that contains it
+            meta_path: Optional explicit meta.json path (alias of info_repo_path)
+            context_lines: Source window around the definition
         """
-        if not _comprehender_enabled():
-            return _unavailable_result(
-                "get_function_info",
-                "set SHERPA_PROMEFUZZ_ENABLE_COMPREHENDER=1 to enable this tool",
-            )
+        from .preprocessor.sinks import lookup_function_info
 
+        return lookup_function_info(
+            function_location=function_location,
+            info_repo_path=str(info_repo_path or ""),
+            meta_path=str(meta_path or ""),
+            context_lines=int(context_lines or 40),
+        )
+
+    @mcp.tool()
+    async def scan_dangerous_sinks(
+        source_paths: Optional[list[str]] = None,
+        meta_path: Optional[str] = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """
+        Scan C/C++ sources for dangerous sinks (memcpy/strcpy/malloc/free/system/...).
+
+        Args:
+            source_paths: Files or directories to scan
+            meta_path: Optional preprocessor meta.json used to add definition files
+            limit: Max sink rows to return
+        """
+        from .preprocessor.sinks import scan_dangerous_sinks as _scan
+
+        hits = _scan(
+            source_paths=list(source_paths or []),
+            meta_path=str(meta_path or "") or None,
+            limit=int(limit or 200),
+        )
         return {
             "status": "success",
-            "location": function_location,
-            "name": "example_func",
-            "signature": "void example_func(int arg)",
+            "count": len(hits),
+            "sinks": hits,
+            "meta_path": str(meta_path or ""),
         }
+
+    @mcp.tool()
+    async def find_call_path(
+        target_symbol: str,
+        callgraph_path: Optional[str] = None,
+        meta_path: Optional[str] = None,
+        public_apis: Optional[list[str]] = None,
+        max_hops: int = 6,
+    ) -> dict[str, Any]:
+        """
+        Recover short caller paths from a sink/symbol toward public APIs.
+
+        Args:
+            target_symbol: Sink or function name to walk callers from
+            callgraph_path: JSON produced by build_library_callgraph or coverage_hints
+            meta_path: Unused except as a degraded hint when the graph is missing
+            public_apis: Optional public entrypoint names that terminate a path
+            max_hops: Maximum reverse BFS depth
+        """
+        from .preprocessor.sinks import find_call_paths
+
+        result = find_call_paths(
+            target_symbol,
+            callgraph_path=str(callgraph_path or "") or None,
+            public_apis=list(public_apis or []),
+            max_hops=int(max_hops or 6),
+        )
+        if result.get("degraded") and meta_path:
+            result["meta_path"] = str(meta_path)
+        return result
 
     # ===================== Comprehender Tools =====================
 

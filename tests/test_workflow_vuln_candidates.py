@@ -12,6 +12,7 @@ for p in (APP_DIR, SRC_DIR):
         sys.path.insert(0, str(p))
 
 import workflow_graph
+import workflow_helpers
 
 
 def test_analysis_context_writes_vuln_candidate_worklist(tmp_path: Path) -> None:
@@ -218,6 +219,10 @@ def test_vuln_hunt_materializes_candidates_summary_and_events(tmp_path: Path) ->
 def test_vuln_hunt_invokes_opencode_skill_when_key_is_available(tmp_path: Path, monkeypatch) -> None:
     fuzz_dir = tmp_path / "fuzz"
     fuzz_dir.mkdir(parents=True)
+    (fuzz_dir / "coverage_report.txt").write_text(
+        "Function coverage: decode 0/1\n  decode_table\n",
+        encoding="utf-8",
+    )
     analysis_context = fuzz_dir / "analysis_context.json"
     analysis_context.write_text(
         json.dumps(
@@ -266,7 +271,11 @@ def test_vuln_hunt_invokes_opencode_skill_when_key_is_available(tmp_path: Path, 
                                 "detectability_confidence": 0.8,
                                 "priority": 0.89,
                                 "evidence_ids": ["EV-1"],
-                                "attack_hint": {"trigger_condition": "oversized length"},
+                                "attack_hint": {
+                                    "trigger_condition": "oversized length",
+                                    "key_code_path": ["decode", "memcpy"],
+                                    "boundary_values": ["len=0xFFFFFFFF"],
+                                },
                                 "attempt_count": 0,
                                 "last_result": {},
                             }
@@ -283,16 +292,84 @@ def test_vuln_hunt_invokes_opencode_skill_when_key_is_available(tmp_path: Path, 
         repo_root = tmp_path
         patcher = _Patcher()
 
+    monkeypatch.setattr(workflow_helpers, "_has_codex_key", lambda: True)
     monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
 
     out = workflow_graph._node_vuln_hunt(
-        {"generator": Gen(), "analysis_context_path": str(analysis_context)}
+        {
+            "generator": Gen(),
+            "analysis_context_path": str(analysis_context),
+            "coverage_uncovered_functions": ["decode_table"],
+        }
     )
 
     assert calls
     assert calls[0]["stage_skill"] == "vuln_hunt"
     assert "fuzz/vuln_candidates.json" in str(calls[0]["prompt"])
+    assert "scan_dangerous_sinks" in str(calls[0]["prompt"])
+    assert "coverage_report_path" in str(calls[0]["prompt"])
+    assert "decode_table" in str(calls[0]["prompt"])
+    assert len(calls) == 1
     assert out["vuln_hunt_active_candidate_id"] == "ai_decode_bounds"
+
+
+def test_vuln_hunt_retries_when_attack_hint_incomplete(tmp_path: Path, monkeypatch) -> None:
+    fuzz_dir = tmp_path / "fuzz"
+    fuzz_dir.mkdir(parents=True)
+    analysis_context = fuzz_dir / "analysis_context.json"
+    analysis_context.write_text(
+        json.dumps({"analysis_evidence": {"security_evidence": [], "vuln_candidate_inventory": []}}) + "\n",
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    class _Patcher:
+        def run_codex_command(self, prompt: str, **kwargs):
+            calls.append(prompt)
+            complete = len(calls) > 1
+            hint = (
+                {
+                    "trigger_condition": "width wraps allocation",
+                    "key_code_path": ["parse", "memcpy"],
+                    "boundary_values": ["width=0xFFFFFFFF"],
+                }
+                if complete
+                else {"trigger_condition": "TBD"}
+            )
+            (fuzz_dir / "vuln_candidates.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "candidates": [
+                            {
+                                "candidate_id": "cand_retry",
+                                "validation_status": "pending",
+                                "target_api": "parse",
+                                "priority": 0.8,
+                                "attack_hint": hint,
+                            }
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (tmp_path / "done").write_text("fuzz/vuln_hunt_summary.md\n", encoding="utf-8")
+            return None
+
+    class Gen:
+        repo_root = tmp_path
+        patcher = _Patcher()
+
+    monkeypatch.setattr(workflow_helpers, "_has_codex_key", lambda: True)
+    monkeypatch.setattr(workflow_graph, "_has_codex_key", lambda: True)
+    out = workflow_graph._node_vuln_hunt(
+        {"generator": Gen(), "analysis_context_path": str(analysis_context)}
+    )
+    assert len(calls) == 2
+    assert "ATTACK_HINT_VALIDATION_FAILED" in calls[1]
+    assert out["vuln_hunt_active_candidate_id"] == "cand_retry"
+    assert "attack_hint_incomplete" not in str(out.get("vuln_hunt_last_reason") or "")
 
 
 def test_selected_targets_skip_exhausted_vuln_candidates(tmp_path: Path) -> None:

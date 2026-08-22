@@ -41,6 +41,9 @@ python -m promefuzz_mcp.server start \
 1. `run_ast_preprocessor`：调用 Clang AST 预处理二进制生成 `meta.json`。
 2. `extract_api_functions`：从 header + meta 中提取 API 函数集合。
 3. `build_library_callgraph`：构建基础调用边集合并导出 JSON。
+4. `scan_dangerous_sinks`：扫描 memcpy/strcpy/malloc/free/system 等危险 sink 行。
+5. `find_call_path`：沿 callgraph 从 sink 反推到公开 API 的短路径。
+6. `get_function_info`：按 `meta.json` 查询函数定义与源码窗口。
 
 ### 3) RAG 能力（OpenRouter Embedding，已实现）
 
@@ -84,20 +87,25 @@ python -m promefuzz_mcp.server start \
 
 ### A. 预处理/相关性
 
-1. `calculate_type_relevance`：当前为 TODO/占位。
-2. `calculate_class_relevance`：当前为占位实现。
-3. `calculate_call_relevance`：当前为占位实现。
-4. complexity/incidental 等模块仍有 placeholder。
+1. `calculate_type_relevance`：MCP 入口 **fail-open**（返回 `degraded=true`，不再抛异常）。底层 `TypeRelevance.calculate()` 仍为占位。
+2. `calculate_class_relevance`：类级占位，未注册为 MCP 工具。
+3. `calculate_call_relevance`：类级占位，未注册为 MCP 工具。
+4. complexity/incidental 模块仍有 placeholder。
 
 ### B. Comprehender（剩余增强项）
 
 1. 目前已提供证据化输出，但仍属于轻量启发式总结，尚未接完整推理模型链路。
 2. `comprehend_function_relevance` 当前基于 usage overlap 近似计算，后续可替换为更强语义模型。
 
-### C. 其他工具
+### C. 已落地的挖洞工具（本轮）
 
-1. `get_function_info`：当前返回示例值（`example_func`），未接真实查询逻辑。
-2. `llm/client` 仍有 placeholder 路径未落地。
+1. `get_function_info`：按 `meta.json` 真实查询函数定义与源码窗口（不再返回 `example_func`）。
+2. `scan_dangerous_sinks`：扫描 memcpy/strcpy/malloc/free/system 等危险 sink 行。
+3. `find_call_path`：沿 callgraph 反推到公开 API 的短路径；无图时 degraded，不抛异常。
+
+### D. 其他
+
+1. `llm/client` 的 `embed()` 仍有 placeholder 路径未落地（RAG 走 OpenRouter，不依赖该路径）。
 
 ## 推荐使用方式（当前阶段）
 

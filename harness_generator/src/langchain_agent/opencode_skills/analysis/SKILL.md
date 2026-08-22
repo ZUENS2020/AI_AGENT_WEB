@@ -17,7 +17,7 @@ Use this skill in the dedicated `analysis` stage before `plan`.
 - repository source tree (read-only)
 - MCP tools from task-scoped PromeFuzz companion (HTTP MCP), when available
 - preferred MCP tools in this round:
-  - code navigation: `list_definitions`, `read_definition`, `read_source`, `find_references`
+  - hunt/code navigation: `scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `list_definitions`, `read_definition`, `read_source`, `find_references`
   - preprocessor: `run_ast_preprocessor`, `extract_api_functions`, `build_library_callgraph`
   - semantic (if enabled): `init_knowledge_base`, `retrieve_documents`, `comprehend_*`
 - optional companion outputs under `/shared/output/_k8s_jobs/<job-id>/promefuzz/` as fallback
@@ -36,9 +36,9 @@ Use this skill in the dedicated `analysis` stage before `plan`.
 - `VULN_HYPOTHESES` section with evidence-linked risk hypotheses
 
 ## Bounded analysis mode
-- This stage must finish promptly. Do not perform open-ended vulnerability research.
+- This stage is a **shallow evidence pass**. Deep vulnerability hunting belongs to `vuln_hunt`.
 - After reading required files, use at most 6 additional MCP/tool reads in the first pass.
-- Prefer existing system-generated `security_evidence[]` and `vuln_candidates.json`; treat them as sufficient unless they are empty or corrupt.
+- Prefer `scan_dangerous_sinks` plus existing system-generated `security_evidence[]` and `vuln_candidates.json`; treat them as sufficient unless they are empty or corrupt.
 - Do not call semantic/comprehension MCP tools in the first pass unless the coordinator explicitly asks for semantic enrichment.
 - After one bounded evidence pass, write `fuzz/vuln_hypotheses.md` and `./done` immediately. Do not keep exploring after writing a coherent top 3-8 hypothesis set.
 - Keep `fuzz/vuln_hypotheses.md` under 120 lines.

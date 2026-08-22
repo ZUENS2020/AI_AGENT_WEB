@@ -4,13 +4,23 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WF = ROOT / "harness_generator" / "src" / "langchain_agent" / "workflow_graph.py"
-PROMPTS = ROOT / "harness_generator" / "src" / "langchain_agent" / "prompts" / "opencode_prompts.md"
-SKILL_ROOT = ROOT / "harness_generator" / "src" / "langchain_agent" / "opencode_skills"
+AGENT = ROOT / "harness_generator" / "src" / "langchain_agent"
+WF = AGENT / "workflow_graph.py"
+PROMPTS = AGENT / "prompts" / "opencode_prompts.md"
+SKILL_ROOT = AGENT / "opencode_skills"
+
+
+def _workflow_source() -> str:
+    files = [
+        WF,
+        AGENT / "workflow_helpers.py",
+        *sorted((AGENT / "nodes").glob("*.py")),
+    ]
+    return "\n".join(path.read_text(encoding="utf-8") for path in files)
 
 
 def test_workflow_has_execution_plan_helpers_and_build_gate() -> None:
-    text = WF.read_text(encoding="utf-8")
+    text = _workflow_source()
     assert "def _execution_plan_path(repo_root: Path) -> Path:" in text
     assert "def _build_execution_plan_doc(" in text
     assert "def _write_execution_plan_doc(" in text

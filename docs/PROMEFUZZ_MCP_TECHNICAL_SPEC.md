@@ -67,6 +67,9 @@ PromeFuzz 采用“任务级 companion + 阶段内调用”模式：
 1. `run_ast_preprocessor`
 2. `extract_api_functions`
 3. `build_library_callgraph`
+4. `scan_dangerous_sinks`
+5. `find_call_path`
+6. `get_function_info`
 
 ## 4.2 RAG 与语义工具（已接入）
 
