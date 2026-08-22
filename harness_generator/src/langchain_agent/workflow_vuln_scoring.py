@@ -394,3 +394,56 @@ def _candidate_priority(
         + 0.03 * min(max(int(evidence_count), 0), 5) / 5.0
     )
     return round(max(0.0, min(raw, 1.0)), 4)
+
+
+_ATTACK_HINT_PLACEHOLDERS = frozenset({"", "tbd", "todo", "n/a", "none", "unknown", "null"})
+
+
+def _nonempty_hint_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = [str(x) for x in value]
+    else:
+        return []
+    out: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text.lower() not in _ATTACK_HINT_PLACEHOLDERS:
+            out.append(text)
+    return out
+
+
+def _attack_hint_missing_fields(hint: Any) -> list[str]:
+    """Return missing attack_hint fields that the hunt contract requires."""
+    if not isinstance(hint, dict):
+        return ["trigger_condition", "key_code_path", "boundary_values"]
+    missing: list[str] = []
+    if not _nonempty_hint_values(hint.get("trigger_condition")):
+        missing.append("trigger_condition")
+    if not _nonempty_hint_values(hint.get("key_code_path")):
+        missing.append("key_code_path")
+    if not _nonempty_hint_values(hint.get("boundary_values")):
+        missing.append("boundary_values")
+    return missing
+
+
+def _vuln_candidates_attack_hint_gaps(candidates: list[dict[str, Any]], *, limit: int = 5) -> list[str]:
+    """Summarize incomplete attack hints on the top active candidates."""
+    gaps: list[str] = []
+    count = 0
+    for item in list(candidates or []):
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("validation_status") or "pending").strip().lower()
+        if status in {"exhausted", "cooling", "degraded_test_code", "deprecated", "degraded_cleanup", "degraded_test_helper"}:
+            continue
+        missing = _attack_hint_missing_fields(item.get("attack_hint"))
+        if not missing:
+            continue
+        cid = str(item.get("candidate_id") or item.get("target_api") or "unknown").strip()
+        gaps.append(f"{cid}: missing {','.join(missing)}")
+        count += 1
+        if count >= max(1, int(limit)):
+            break
+    return gaps

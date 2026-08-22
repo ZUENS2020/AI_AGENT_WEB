@@ -34,10 +34,11 @@ flags are added automatically by the build wrapper — you do NOT write
 - `fuzz/selected_targets.json` (if present)
 - `fuzz/analysis_context.json` (if present)
   - consume `analysis_evidence.vuln_candidate_inventory[]` when available
-  - consume `attack_hint.trigger_condition`, `attack_hint.key_code_path`, `attack_hint.boundary_values`, `attack_hint.vuln_category`, `attack_hint.sanitizer_hint`
+  - **MUST** consume `attack_hint.trigger_condition`, `attack_hint.key_code_path`, `attack_hint.boundary_values`, `attack_hint.vuln_category`, `attack_hint.sanitizer_hint`
+  - seed and harness input flow must exercise `boundary_values`; omitting them is a contract failure
 - `fuzz/observed_target.json` (if present)
 - MCP tools from task-scoped PromeFuzz companion (if available), including preprocessor and semantic tools
-  - code navigation: `list_definitions`, `read_definition`, `read_source`, `find_references`
+  - hunt/code navigation: `scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `list_definitions`, `read_definition`, `read_source`, `find_references`
   - preprocessor: `run_ast_preprocessor`, `extract_api_functions`, `build_library_callgraph`
   - semantic (if enabled): `init_knowledge_base`, `retrieve_documents`, `comprehend_*`
 
@@ -54,7 +55,7 @@ flags are added automatically by the build wrapper — you do NOT write
 ## Workflow
 1. Query MCP evidence first when MCP is available (code-navigation first, preprocessor second, semantic evidence third).
 2. Read planning artifacts and lock target alignment first.
-3. When vulnerability candidates exist, use the highest-priority `attack_hint` values to shape harness input flow and boundary-case seeds.
+3. When vulnerability candidates exist, **MUST** use the highest-priority `attack_hint` values (`trigger_condition`, `key_code_path`, `boundary_values`) to shape harness input flow and boundary-case seeds. Do not drop `boundary_values`.
 3. Create harness source(s) before scaffold documentation (`harness-first contract`).
 4. Create build glue with runtime artifact discovery and compiler-by-suffix behavior.
 5. Create README/JSON strategy files with consistent selected/final target semantics.
@@ -182,6 +183,7 @@ Rules:
   - C/C++ harnesses that use `uint8_t` or `size_t` must include the standard headers that define them (`<stdint.h>` and `<stddef.h>` or C++ equivalents) in the harness source.
 - LibFuzzer link contract is mandatory: every runnable executable under `fuzz/out/`, including `fuzz/out/replay/<name>`, must link a runnable entrypoint; prefer `-fsanitize=fuzzer,address,undefined` for both primary and replay executables. `-fsanitize=fuzzer-no-link` alone is only valid for objects/libraries, or for replay executables that compile and link a separate `main()` wrapper that calls `LLVMFuzzerTestOneInput`.
 - Forbid argv/file-driven harness entry logic in libFuzzer mode (`fopen(argv[1], ...)`, `read(argv[1], ...)`, manual corpus file loops).
+- **Never feed raw fuzz bytes as a printf-family format string or as a stored format/config string.** Any parameter documented as a `printf`/`scanf` format (or passed to a setter such as `*_set_*_format`, `*_serialization_format`, `*_set_fmt`) must be a fixed harness-controlled constant, NOT derived from the input buffer. Driving such a parameter with fuzz data produces format-string crashes (`%n` wild writes, oversized `%f`/`%g` expansions overflowing fixed `num_buf`) that are harness misuse, not library bugs, and waste triage cycles. If the target genuinely is a format-string parser, constrain the input to a safe allowlist (e.g. a bounded `%g`/`%f`/`%e` with explicit width) rather than arbitrary bytes, and record the choice in `fuzz/repo_understanding.json`.
 - When diagnostics include concrete file paths, use `Read and fix <path>[:line]` before broader edits.
 - If MCP is unavailable, continue in degraded mode and record this in `fuzz/repo_understanding.json`.
 

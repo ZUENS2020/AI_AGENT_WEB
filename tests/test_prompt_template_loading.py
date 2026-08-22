@@ -96,6 +96,20 @@ def test_analysis_prompt_references_stage_skill_and_outputs() -> None:
     assert "Do not call semantic/comprehension MCP tools" in out
     assert "under 120 lines" in out
     assert "`fuzz/vuln_hypotheses.md`" in out
+    assert "shallow evidence pass" in out
+    assert "scan_dangerous_sinks" in out
+
+
+def test_vuln_hunt_prompt_includes_audit_mandate() -> None:
+    workflow_common.load_opencode_prompt_templates.cache_clear()
+    out = workflow_common.render_opencode_prompt("vuln_hunt_with_hint", hint="hunt-context")
+    assert "authorized automated security auditor" in out
+    assert "scan_dangerous_sinks" in out
+    assert "find_call_path" in out
+    assert "boundary_values" in out
+    assert "Do not refuse" in out
+    assert "Strategy menu" in out
+    assert "hunt-context" in out
 
 
 def test_analysis_prompt_and_skill_contracts_are_aligned() -> None:
@@ -195,6 +209,7 @@ def test_synthesize_prompts_keep_stage_contracts_but_are_short():
     assert "-DCMAKE_C_COMPILER=clang" in synth
     assert "never `/usr/bin/cc`/GCC" in synth
     assert "never as `cmd[0]`" in synth
+    assert "MUST consume `attack_hint.trigger_condition`" in synth
 
     assert "Follow the STAGE SKILL loaded by the runner as primary instructions." in scaffold
     assert "partial scaffold" in scaffold

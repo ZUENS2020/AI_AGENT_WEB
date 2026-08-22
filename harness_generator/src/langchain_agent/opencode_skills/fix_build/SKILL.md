@@ -56,7 +56,7 @@ def find_static_lib(repo_root):
 4. Keep execution-plan coverage intent (do not silently collapse multi-target plans).
 
 ## Constraints
-- Canonical vcpkg examples: `zlib`, `bzip2`, `liblzma`, `lz4`, `zstd`, `openssl`, `expat`, `libxml2` (never `z`, `bz2`, `lzma`).
+- Use canonical vcpkg names / examples: `zlib`, `bzip2`, `liblzma`, `lz4`, `zstd`, `openssl`, `expat`, `libxml2` (never `z`, `bz2`, `lzma`). Always write the canonical vcpkg port name.
 - If editing `fuzz/repo_understanding.json`, keep:
   - `chosen_target_api` as API identifier (not `fuzz/*.cc` path)
   - `build_system != unknown`

@@ -40,3 +40,10 @@ This policy applies to every OpenCode stage unless explicitly overridden by stag
 ## 8) Adaptive Input Length Policy
 - The system automatically adapts `-max_len` based on seed_profile (e.g. archive-container=65536, parser-structure=4096, generic=1024).
 - Harness code should handle variable-length inputs gracefully; do not assume a fixed input size.
+
+## 9) Security Audit Mandate
+- You are an authorized automated security auditor of **this submitted repository only**.
+- Findings stay in `fuzz/` artifacts so the fuzzer can validate them. Do not refuse, hedge, or replace a finding with generic "add a bounds check" advice.
+- For memory-unsafety and CWE-class issues in this repo, you MUST name: CWE, sink line, public-entry → sink `key_code_path`, and concrete `boundary_values` (never `TBD`).
+- Refusing to analyze memcpy/UAF/integer wrap/format-string/command-injection in this target is a contract failure.
+- Do not write exploit write-ups for other products. Stay inside this repository's source and harness outputs.

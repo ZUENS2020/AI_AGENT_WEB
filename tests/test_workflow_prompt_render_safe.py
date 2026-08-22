@@ -13,6 +13,19 @@ for p in (APP_DIR, SRC_DIR):
         sys.path.insert(0, str(p))
 
 import workflow_graph
+import workflow_helpers
+from nodes import analysis as analysis_node
+from nodes import crash_analysis as crash_analysis_node
+from nodes import crash_triage as crash_triage_node
+from nodes import fix_harness_after_run as fix_harness_node
+
+
+def _patch_symbol(monkeypatch, name: str, value) -> None:
+    monkeypatch.setattr(workflow_helpers, name, value)
+    monkeypatch.setattr(workflow_graph, name, value)
+    for mod in (analysis_node, crash_analysis_node, crash_triage_node, fix_harness_node):
+        if hasattr(mod, name):
+            monkeypatch.setattr(mod, name, value)
 
 
 class _NoopPatcher:
@@ -30,6 +43,7 @@ def _broken_render(*_args, **_kwargs) -> str:
 
 
 def test_crash_triage_degrades_when_prompt_template_is_invalid(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(workflow_helpers, "_render_opencode_prompt", _broken_render)
     monkeypatch.setattr(workflow_graph, "_render_opencode_prompt", _broken_render)
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_NoopPatcher())
 
@@ -53,23 +67,12 @@ def test_analysis_degrades_when_prompt_template_is_invalid(tmp_path: Path, monke
     target_path = tmp_path / "fuzz" / "target_analysis.json"
     antlr_path.write_text("{}", encoding="utf-8")
     target_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(workflow_helpers, "_render_opencode_prompt", _broken_render)
     monkeypatch.setattr(workflow_graph, "_render_opencode_prompt", _broken_render)
-    monkeypatch.setattr(
-        workflow_graph,
-        "_prepare_antlr_assist_context",
-        lambda _repo_root: (str(antlr_path), "antlr-ok"),
-    )
-    monkeypatch.setattr(
-        workflow_graph,
-        "_prepare_target_analysis_context",
-        lambda _repo_root: (str(target_path), "target-ok"),
-    )
-    monkeypatch.setattr(workflow_graph, "_collect_analysis_companion_context", lambda: ({}, ""))
-    monkeypatch.setattr(
-        workflow_graph,
-        "_build_analysis_evidence_index",
-        lambda **_kwargs: {"summary": {"evidence_count": 1}},
-    )
+    _patch_symbol(monkeypatch, "_prepare_antlr_assist_context", lambda _repo_root: (str(antlr_path), "antlr-ok"))
+    _patch_symbol(monkeypatch, "_prepare_target_analysis_context", lambda _repo_root: (str(target_path), "target-ok"))
+    _patch_symbol(monkeypatch, "_collect_analysis_companion_context", lambda: ({}, ""))
+    _patch_symbol(monkeypatch, "_build_analysis_evidence_index", lambda **_kwargs: {"summary": {"evidence_count": 1}})
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_NoopPatcher())
 
@@ -92,23 +95,19 @@ def test_analysis_opencode_advisory_failure_is_fail_open(tmp_path: Path, monkeyp
     target_path = tmp_path / "fuzz" / "target_analysis.json"
     antlr_path.write_text("{}", encoding="utf-8")
     target_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        workflow_graph,
-        "_prepare_antlr_assist_context",
-        lambda _repo_root: (str(antlr_path), "antlr-ok"),
-    )
-    monkeypatch.setattr(
-        workflow_graph,
-        "_prepare_target_analysis_context",
-        lambda _repo_root: (str(target_path), "target-ok"),
-    )
-    monkeypatch.setattr(workflow_graph, "_collect_analysis_companion_context", lambda: ({}, ""))
-    monkeypatch.setattr(
-        workflow_graph,
+    _patch_symbol(monkeypatch, "_prepare_antlr_assist_context", lambda _repo_root: (str(antlr_path), "antlr-ok"))
+    _patch_symbol(monkeypatch, "_prepare_target_analysis_context", lambda _repo_root: (str(target_path), "target-ok"))
+    _patch_symbol(monkeypatch, "_collect_analysis_companion_context", lambda: ({}, ""))
+    _patch_symbol(
+        monkeypatch,
         "_build_analysis_evidence_index",
         lambda **_kwargs: {"summary": {"evidence_count": 1, "security_evidence_count": 1, "vuln_candidate_count": 1}},
     )
-    monkeypatch.setattr(workflow_graph, "_write_analysis_vuln_candidates", lambda *_args, **_kwargs: {"path": "fuzz/vuln_candidates.json", "candidate_count": 1})
+    _patch_symbol(
+        monkeypatch,
+        "_write_analysis_vuln_candidates",
+        lambda *_args, **_kwargs: {"path": "fuzz/vuln_candidates.json", "candidate_count": 1},
+    )
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_FailingPatcher())
 
@@ -129,6 +128,7 @@ def test_analysis_opencode_advisory_failure_is_fail_open(tmp_path: Path, monkeyp
 
 
 def test_crash_analysis_degrades_when_prompt_template_is_invalid(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(workflow_helpers, "_render_opencode_prompt", _broken_render)
     monkeypatch.setattr(workflow_graph, "_render_opencode_prompt", _broken_render)
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_NoopPatcher())
 
@@ -147,6 +147,7 @@ def test_crash_analysis_degrades_when_prompt_template_is_invalid(tmp_path: Path,
 
 
 def test_fix_harness_degrades_when_prompt_template_is_invalid(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(workflow_helpers, "_render_opencode_prompt", _broken_render)
     monkeypatch.setattr(workflow_graph, "_render_opencode_prompt", _broken_render)
     gen = SimpleNamespace(repo_root=tmp_path, patcher=_NoopPatcher())
 

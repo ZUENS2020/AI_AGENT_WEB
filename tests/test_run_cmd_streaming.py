@@ -308,14 +308,12 @@ def test_run_cmd_normalizes_system_package_aliases_before_install(tmp_path: Path
         "liblzma\n"
         "lz4\n"
     )
-def test_run_cmd_fails_when_declared_ports_require_missing_vcpkg(tmp_path: Path):
-    gen = _fake_generator(tmp_path)
+def _repo_with_failing_vcpkg(tmp_path: Path, *, build_echo: str) -> Path:
     fuzz_dir = tmp_path / "fuzz"
     fuzz_dir.mkdir(parents=True, exist_ok=True)
     (fuzz_dir / "system_packages.txt").write_text("bzip2\n", encoding="utf-8")
-
     build_script = fuzz_dir / "build.sh"
-    build_script.write_text("#!/bin/sh\necho should-not-run\n", encoding="utf-8")
+    build_script.write_text(f"#!/bin/sh\necho {build_echo}\n", encoding="utf-8")
     build_script.chmod(0o755)
     vcpkg_dir = tmp_path / "vcpkg"
     vcpkg_dir.mkdir(parents=True, exist_ok=True)
@@ -325,9 +323,44 @@ def test_run_cmd_fails_when_declared_ports_require_missing_vcpkg(tmp_path: Path)
     vcpkg_script = vcpkg_dir / "vcpkg"
     vcpkg_script.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     vcpkg_script.chmod(0o755)
+    return fuzz_dir
+
+
+def test_run_cmd_degrades_when_declared_ports_require_missing_vcpkg(tmp_path: Path):
+    # Default SHERPA_VCPKG_STRICT=0 is fail-open: a broken vcpkg must not
+    # abort the project's own build. The install failure is logged as a
+    # warning and build.sh still runs.
+    gen = _fake_generator(tmp_path)
+    fuzz_dir = _repo_with_failing_vcpkg(tmp_path, build_echo="project-build-ok")
 
     env = os.environ.copy()
     env["SHERPA_AUTO_INSTALL_SYSTEM_DEPS"] = "1"
+    env.pop("SHERPA_VCPKG_STRICT", None)
+    env["PATH"] = "/bin"
+
+    rc, out, err = gen._run_cmd(
+        ["./build.sh"],
+        cwd=fuzz_dir,
+        env=env,
+        timeout=10,
+        idle_timeout=0,
+    )
+
+    merged = (out + "\n" + err).lower()
+    assert rc == 0
+    assert "project-build-ok" in out
+    assert "continuing without vcpkg" in merged
+    assert "vcpkg install failed" in merged
+    assert "[error]" not in merged
+
+
+def test_run_cmd_fails_when_declared_ports_require_missing_vcpkg(tmp_path: Path):
+    gen = _fake_generator(tmp_path)
+    fuzz_dir = _repo_with_failing_vcpkg(tmp_path, build_echo="should-not-run")
+
+    env = os.environ.copy()
+    env["SHERPA_AUTO_INSTALL_SYSTEM_DEPS"] = "1"
+    env["SHERPA_VCPKG_STRICT"] = "1"
     env["PATH"] = "/bin"
 
     rc, out, err = gen._run_cmd(
