@@ -12,6 +12,7 @@ for p in (APP, SRC):
         sys.path.insert(0, str(p))
 
 import workflow_graph as wg  # noqa: E402
+import workflow_helpers as wh  # noqa: E402
 
 
 def test_wrapper_env_installs_and_prepends_path(tmp_path):
@@ -40,6 +41,6 @@ def test_wrapper_instruments_plain_library_compile(tmp_path):
 
 def test_wrapper_env_degrades_safely(tmp_path, monkeypatch):
     # never raise even if install fails
-    monkeypatch.setattr(wg, "_install_coverage_cc_wrapper", lambda r: (_ for _ in ()).throw(OSError("x")))
+    monkeypatch.setattr(wh, "_install_coverage_cc_wrapper", lambda r: (_ for _ in ()).throw(OSError("x")))
     env = wg._apply_coverage_cc_wrapper_env({"PATH": "/usr/bin"}, tmp_path)
     assert env["PATH"] == "/usr/bin"  # unchanged, no crash
