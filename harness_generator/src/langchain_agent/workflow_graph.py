@@ -6,6 +6,7 @@ import importlib
 import json
 import os
 import re
+import sys
 import subprocess
 import tempfile
 import textwrap
@@ -1977,6 +1978,8 @@ from workflow_vuln_scoring import (  # noqa: E402
     _candidate_attack_hint,
     _normalize_attack_hint,
     _candidate_priority,
+    _attack_hint_missing_fields,
+    _vuln_candidates_attack_hint_gaps,
 )
 
 
@@ -2982,6 +2985,44 @@ def _write_vuln_hunt_summary(repo_root: Path, candidates: list[dict[str, Any]], 
     return str(path)
 
 
+def _coverage_hunt_feedback_lines(state: dict[str, Any], repo_root: Path) -> list[str]:
+    """Lightweight executed/uncovered path summary for the vuln-hunt agent."""
+    lines: list[str] = []
+    report = repo_root / "fuzz" / "coverage_report.txt"
+    if report.is_file():
+        lines.append(f"- coverage_report_path: {report}")
+        try:
+            preview = report.read_text(encoding="utf-8", errors="replace")[:2500]
+        except Exception:
+            preview = ""
+        if preview.strip():
+            lines.append("- coverage_report_preview:")
+            for row in preview.splitlines()[:40]:
+                lines.append(f"  {row}")
+    uncovered = [
+        str(x).strip()
+        for x in list(state.get("coverage_uncovered_functions") or [])
+        if str(x).strip()
+    ]
+    if uncovered:
+        lines.append("- uncovered_functions:")
+        for name in uncovered[:12]:
+            lines.append(f"  * {name}")
+    frontier_path = str(
+        state.get("coverage_frontier_path") or state.get("fuzz_coverage_frontier_path") or ""
+    ).strip()
+    if frontier_path:
+        lines.append(f"- coverage_frontier_path: {frontier_path}")
+    frontier_summary = (
+        dict(state.get("coverage_frontier_summary") or {})
+        if isinstance(state.get("coverage_frontier_summary"), dict)
+        else {}
+    )
+    for extra in _coverage_frontier_feedback_lines(frontier_summary)[:16]:
+        lines.append(extra)
+    return lines
+
+
 def _run_vuln_hunt_subphase(state: FuzzWorkflowRuntimeState) -> FuzzWorkflowRuntimeState:
     """Refresh vulnerability candidates without mutating control-plane truth."""
     gen = state.get("generator")
@@ -3023,8 +3064,10 @@ def _run_vuln_hunt_subphase(state: FuzzWorkflowRuntimeState) -> FuzzWorkflowRunt
                 hunt_hint_lines = [
                     f"- analysis_context_path: {analysis_context_path}",
                     "- read `fuzz/analysis_context.json` and `fuzz/vuln_candidates.json` first",
-                    "- update only advisory vulnerability candidates and hunt summary",
+                    "- query MCP hunt tools first when available: `scan_dangerous_sinks`, `find_call_path`, `get_function_info`, `read_source`",
+                    "- then write advisory vulnerability candidates and hunt summary",
                     "- preserve validation_status/attempt_count/last_result for existing candidates",
+                    "- every attack_hint MUST include trigger_condition, key_code_path, and concrete boundary_values",
                 ]
                 # Inject run/coverage feedback paths so the agent can refine
                 # vulnerability assessments with actual fuzz data.
@@ -3041,53 +3084,70 @@ def _run_vuln_hunt_subphase(state: FuzzWorkflowRuntimeState) -> FuzzWorkflowRunt
                 run_summary_path = str(state.get("fuzz_coverage_run_feedback_summary") or "")
                 if run_summary_path:
                     hunt_hint_lines.append(f"- coverage_run_feedback_summary: {run_summary_path}")
+                hunt_hint_lines.extend(_coverage_hunt_feedback_lines(cast(dict[str, Any], state), repo_root))
                 hunt_hint = "\n".join(hunt_hint_lines)
                 event = _vuln_hunt_event_from_state(cast(dict[str, Any], state))
                 if event:
                     hunt_hint += "\n- latest_feedback_event: " + json.dumps(event, ensure_ascii=False, sort_keys=True)
-                prompt, render_issue = _render_opencode_prompt_safe(
-                    "vuln_hunt_with_hint",
-                    fallback_name="analysis_with_hint",
-                    hint=hunt_hint,
-                    fallback_hint=hunt_hint,
-                )
-                if render_issue:
-                    issue = "; ".join(x for x in [issue, render_issue] if str(x).strip())
-                gen.patcher.run_codex_command(
-                    prompt,
-                    stage_skill="vuln_hunt",
-                    timeout=_remaining_time_budget_sec(state),
-                    max_attempts=1,
-                    max_cli_retries=_opencode_cli_retries(),
-                    idle_timeout_override=_vuln_hunt_idle_timeout_sec(),
-                )
+                for hunt_attempt in range(2):
+                    prompt, render_issue = _render_opencode_prompt_safe(
+                        "vuln_hunt_with_hint",
+                        fallback_name="analysis_with_hint",
+                        hint=hunt_hint,
+                        fallback_hint=hunt_hint,
+                    )
+                    if render_issue:
+                        issue = "; ".join(x for x in [issue, render_issue] if str(x).strip())
+                    gen.patcher.run_codex_command(
+                        prompt,
+                        stage_skill="vuln_hunt",
+                        timeout=_remaining_time_budget_sec(state),
+                        max_attempts=1,
+                        max_cli_retries=_opencode_cli_retries(),
+                        idle_timeout_override=_vuln_hunt_idle_timeout_sec(),
+                    )
 
-                # Validate vuln_candidates.json; restore snapshot if agent
-                # left a corrupt file (truncated write due to process kill).
-                if _vc_snap_raw is not None:
-                    _post_ok = False
-                    _post_count = 0
-                    try:
-                        _raw = json.loads(_vc_path.read_text(encoding="utf-8", errors="replace"))
-                        _post_ok = isinstance(_raw, dict)
-                        _post_count = len(_raw.get("candidates") or []) if _post_ok else 0
-                    except Exception:
-                        pass
-                    if not _post_ok:
+                    # Validate vuln_candidates.json; restore snapshot if agent
+                    # left a corrupt file (truncated write due to process kill).
+                    if _vc_snap_raw is not None:
+                        _post_ok = False
+                        _post_count = 0
                         try:
-                            _vc_path.write_bytes(_vc_snap_raw)
+                            _raw = json.loads(_vc_path.read_text(encoding="utf-8", errors="replace"))
+                            _post_ok = isinstance(_raw, dict)
+                            _post_count = len(_raw.get("candidates") or []) if _post_ok else 0
+                        except Exception:
+                            pass
+                        if not _post_ok:
+                            try:
+                                _vc_path.write_bytes(_vc_snap_raw)
+                                issue = "; ".join(
+                                    x for x in [
+                                        issue,
+                                        f"vuln_candidates_corrupt_restored(pre={_vc_snap_count},post={_post_count})",
+                                    ]
+                                    if str(x).strip()
+                                )
+                            except Exception as _restore_exc:
+                                issue = "; ".join(
+                                    x for x in [issue, f"vuln_candidates_restore_failed:{_restore_exc}"]
+                                    if str(x).strip()
+                                )
+                    live_candidates = list((_load_vuln_candidates_doc(repo_root).get("candidates") or []))
+                    hint_gaps = _vuln_candidates_attack_hint_gaps(live_candidates)
+                    if not hint_gaps or hunt_attempt >= 1:
+                        if hint_gaps:
                             issue = "; ".join(
-                                x for x in [
-                                    issue,
-                                    f"vuln_candidates_corrupt_restored(pre={_vc_snap_count},post={_post_count})",
-                                ]
+                                x for x in [issue, "attack_hint_incomplete:" + ";".join(hint_gaps)]
                                 if str(x).strip()
                             )
-                        except Exception as _restore_exc:
-                            issue = "; ".join(
-                                x for x in [issue, f"vuln_candidates_restore_failed:{_restore_exc}"]
-                                if str(x).strip()
-                            )
+                        break
+                    hunt_hint += (
+                        "\n- ATTACK_HINT_VALIDATION_FAILED: "
+                        + "; ".join(hint_gaps)
+                        + ". Rewrite those candidates with trigger_condition, key_code_path, and concrete boundary_values. Do not use TBD."
+                    )
+                    _clear_opencode_done_sentinel(repo_root)
             except Exception as exc:
                 issue = "; ".join(
                     x for x in [issue, f"vuln_hunt_opencode_error:{exc}"] if str(x).strip()
@@ -7397,6 +7457,60 @@ def _materialize_analysis_context_from_companion(
     )
 
 
+def _ensure_promefuzz_sinks():
+    """Import scan_dangerous_sinks from promefuzz-mcp, bootstrapping sys.path if needed."""
+    try:
+        from promefuzz_mcp.preprocessor.sinks import scan_dangerous_sinks
+        return scan_dangerous_sinks
+    except ImportError:
+        pass
+    roots: list[Path] = []
+    env_root = str(os.environ.get("SHERPA_PROMEFUZZ_MCP_ROOT") or "").strip()
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+    roots.append(Path(__file__).resolve().parents[3] / "promefuzz-mcp")
+    roots.append(Path("/app/promefuzz-mcp"))
+    for root in roots:
+        if not root.is_dir():
+            continue
+        root_txt = str(root)
+        if root_txt not in sys.path:
+            sys.path.insert(0, root_txt)
+        try:
+            from promefuzz_mcp.preprocessor.sinks import scan_dangerous_sinks
+            return scan_dangerous_sinks
+        except ImportError:
+            continue
+    return None
+
+
+def _scan_repo_dangerous_sinks(repo_root: Path, companion_doc: dict[str, Any]) -> list[dict[str, Any]]:
+    scan_fn = _ensure_promefuzz_sinks()
+    if scan_fn is None:
+        return []
+    artifacts = dict(companion_doc.get("artifacts") or {}) if isinstance(companion_doc, dict) else {}
+    preprocess_doc = dict(((artifacts.get("preprocess.json") or {}) if isinstance(artifacts, dict) else {}).get("json") or {})
+    promefuzz_doc = dict(preprocess_doc.get("promefuzz") or {}) if isinstance(preprocess_doc.get("promefuzz"), dict) else {}
+    meta_path = str(promefuzz_doc.get("meta_path") or "").strip()
+    source_paths = [str(repo_root)]
+    inventory = dict(preprocess_doc.get("inventory") or {}) if isinstance(preprocess_doc.get("inventory"), dict) else {}
+    listed_sources = inventory.get("source_files")
+    if isinstance(listed_sources, list) and listed_sources:
+        source_paths = [str(x) for x in listed_sources if str(x).strip()]
+    try:
+        return list(
+            scan_fn(
+                source_paths=source_paths,
+                meta_path=meta_path or None,
+                extra_skip_parts={"tests", "test", "demo", "demos", "examples", "example"},
+                limit=80,
+            )
+            or []
+        )
+    except Exception:
+        return []
+
+
 def _build_analysis_evidence_index(
     *,
     repo_root: Path,
@@ -7673,6 +7787,64 @@ def _build_analysis_evidence_index(
                 "semantic_hit_rate": status_doc.get("semantic_hit_rate"),
                 "cache_hit_rate": status_doc.get("cache_hit_rate"),
             },
+        )
+
+    seen_sink_keys = {
+        (
+            str(item.get("source_path") or ""),
+            int(item.get("line") or 0),
+            str(item.get("signal_id") or ""),
+        )
+        for item in security_evidence
+        if isinstance(item, dict)
+    }
+    for row in _scan_repo_dangerous_sinks(repo_root, companion_doc)[:80]:
+        if not isinstance(row, dict):
+            continue
+        file_hint = str(row.get("file") or "").strip()
+        try:
+            line_no = int(row.get("line") or 0)
+        except Exception:
+            line_no = 0
+        signal_id = str(row.get("signal_id") or "mem_oob_candidate").strip() or "mem_oob_candidate"
+        sink = str(row.get("sink") or "").strip()
+        cwe = str(row.get("cwe") or "").strip()
+        enclosing = str(row.get("enclosing_function") or "").strip()
+        try:
+            rel_path = str(Path(file_hint).resolve().relative_to(repo_root.resolve()))
+        except Exception:
+            rel_path = file_hint
+        key = (rel_path or file_hint, line_no, signal_id)
+        if key in seen_sink_keys:
+            continue
+        seen_sink_keys.add(key)
+        api_name = enclosing or sink or "unknown_sink"
+        summary = (
+            f"`{sink}` sink at {rel_path}:{line_no} ({cwe or 'CWE-unknown'})"
+            + (f" in `{enclosing}`" if enclosing else "")
+        )
+        score = 0.72
+        sec_ev_id = _add_evidence(
+            kind="dangerous_sink",
+            source_path=rel_path or file_hint,
+            summary=summary,
+            score=score,
+            payload=row,
+        )
+        security_evidence.append(
+            {
+                "evidence_id": sec_ev_id,
+                "target_api": api_name,
+                "signal_id": signal_id,
+                "severity": "high" if score >= 0.75 else "medium",
+                "confidence": score,
+                "source_path": rel_path or file_hint,
+                "line": line_no,
+                "summary": summary,
+                "sink": sink,
+                "cwe": cwe,
+                "size_arg_hint": str(row.get("size_arg_hint") or ""),
+            }
         )
 
     return {
