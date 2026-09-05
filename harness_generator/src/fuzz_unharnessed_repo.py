@@ -727,6 +727,37 @@ _RE_SANITIZER_SUMMARY = re.compile(
 )
 _RE_RUNTIME_ERROR = re.compile(r"\bruntime error:\b", re.IGNORECASE)
 _RE_LF_DEADLY_SIGNAL = re.compile(r"ERROR: libFuzzer: deadly signal")
+_RE_LEAK_SANITIZER = re.compile(r"==[0-9]+==ERROR: LeakSanitizer: detected memory leaks")
+# libFuzzer prints these when a leak is found while executing the *initial*
+# corpus (i.e. on the very first inputs), which aborts before any fuzzing can
+# happen. Such a leak is almost always the harness leaking its own input
+# buffer — e.g. a reader/loader callback that mallocs a buffer the library does
+# not take ownership of and the harness forgets to free.
+_RE_LF_INITIAL_CORPUS_LEAK = re.compile(
+    r"a leak (?:has been|was) found in the initial corpus", re.IGNORECASE
+)
+_RE_LF_IGNORE_LEAKS_HINT = re.compile(r"-ignore_leaks=1", re.IGNORECASE)
+
+
+def _is_initial_corpus_leak(log: str) -> bool:
+    """
+    True when the run aborted on a memory leak detected against the *initial*
+    corpus rather than a genuine upstream crash.
+
+    libFuzzer runs every seed once before mutating; if any of them leaks, it
+    reports the LeakSanitizer trace and stops with "a leak has been found in
+    the initial corpus" — so the corpus never grows and no real fuzzing occurs
+    (the hallmark is ``Corpus files: 0``). For callback/reader-style parser
+    APIs this is overwhelmingly a harness-owned buffer leak, not a target bug.
+    """
+    if not log:
+        return False
+    if not _RE_LEAK_SANITIZER.search(log):
+        return False
+    return bool(
+        _RE_LF_INITIAL_CORPUS_LEAK.search(log)
+        or _RE_LF_IGNORE_LEAKS_HINT.search(log)
+    )
 
 
 def _default_diff_excludes() -> set[str]:
@@ -6093,6 +6124,39 @@ EOF
             line_callback=_line_callback,
             track_for_early_stop=True,
         )
+
+        # Self-heal: a leak detected against the *initial* corpus is almost
+        # always the harness leaking its own input buffer (e.g. a reader/loader
+        # callback that mallocs a buffer the target does not own). It aborts on
+        # the first seed, so the corpus never grows (Corpus files: 0) and no
+        # fuzzing happens. The proper fix is freeing that buffer in the harness
+        # (enforced by the synthesize contract); but so the pipeline is not
+        # wedged on an unfixed harness, re-run once with libFuzzer leak
+        # detection disabled so fuzzing can proceed (at the cost of not finding
+        # leak-class bugs this run).
+        leak_detection_disabled = False
+        if (
+            _is_initial_corpus_leak((out or "") + "\n" + (err or ""))
+            and "-detect_leaks=0" not in cmd
+        ):
+            print(
+                "[warn] initial-corpus memory leak detected (likely a harness-owned "
+                "reader/callback input buffer); re-running with -detect_leaks=0 so "
+                "fuzzing can proceed — fix the harness to free that buffer"
+            )
+            cmd.append("-detect_leaks=0")
+            leak_detection_disabled = True
+            print(f"[*] ➜  {' '.join(cmd)}")
+            rc, out, err = self._run_cmd(
+                cmd,
+                cwd=self.repo_root,
+                env=env,
+                extra_inputs=[str(corpus_dir)],
+                timeout=hard_timeout,
+                idle_timeout=run_idle_timeout,
+                line_callback=_line_callback,
+                track_for_early_stop=True,
+            )
 
         # Dump the tail for quick reading.
         log = (out + "\n=== STDERR ===\n" + err).replace("\r", "\n")
